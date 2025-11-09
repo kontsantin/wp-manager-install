@@ -1,6 +1,6 @@
 #!/bin/bash
-# Скрипт для создания структуры темы WordPress
-# Функции для использования из основного скрипта wpmanager
+# theme-builder.sh
+# Функция для создания структуры темы WordPress
 
 create_theme_files() {
     local THEME_DIR="$1"
@@ -12,12 +12,18 @@ create_theme_files() {
         return 1
     fi
 
+    # Безопасное имя для text-domain / PHP-функций (латинские, нижнее подчёркивание)
+    SAFE_NAME=$(echo "$THEME_NAME" | sed 's/[^a-zA-Z0-9_]/_/g' | tr '[:upper:]' '[:lower:]')
+
     mkdir -p "$THEME_DIR"
     mkdir -p "$THEME_DIR/inc/composer"
     mkdir -p "$THEME_DIR/templates"
-    mkdir -p "$THEME_DIR/templates/parts"
+    mkdir -p "$THEME_DIR/templates-parts"
+    mkdir -p "$THEME_DIR/assets/css"
+    mkdir -p "$THEME_DIR/assets/js"
+    mkdir -p "$THEME_DIR/assets/images"
 
-    # composer.json в папке inc/composer для carbon fields (пользователь может запустить composer install)
+    # composer.json для Carbon Fields
     cat > "$THEME_DIR/inc/composer/composer.json" <<JSON
 {
   "name": "${THEME_NAME}/theme",
@@ -28,59 +34,59 @@ create_theme_files() {
 }
 JSON
 
-        # Если есть composer, автоматически устанавливаем зависимости (carbon fields)
-        if command -v composer >/dev/null 2>&1; then
-                echo "Running composer install for Carbon Fields..."
-                (cd "$THEME_DIR/inc/composer" && composer install --no-interaction --prefer-dist) >/dev/null 2>&1 || {
-                        echo "Warning: composer install failed in $THEME_DIR/inc/composer" >&2
-                }
-        else
-                echo "Note: composer not found. To install Carbon Fields, run:"
-                echo "  cd $THEME_DIR/inc/composer && composer install"
-        fi
+    # Composer install, если есть
+    if command -v composer >/dev/null 2>&1; then
+        echo "Running composer install for Carbon Fields..."
+        (cd "$THEME_DIR/inc/composer" && composer install --no-interaction --prefer-dist) >/dev/null 2>&1 || {
+            echo "Warning: composer install failed" >&2
+        }
+    else
+        echo "Composer not found. To install Carbon Fields, run:"
+        echo "cd $THEME_DIR/inc/composer && composer install"
+    fi
 
-    # assets.php - массив скриптов/стилей (ключ => [path, deps, in_footer])
+    # assets.php
     cat > "$THEME_DIR/inc/assets.php" <<'PHP'
 <?php
-// Массив ассетов: порядок в массиве = приоритет (первый - выше)
 $theme_assets = array(
-    // handle => array('path', array('deps'), in_footer)
-    'theme-style' => array('style.css', array(), false),
-    'theme-main'  => array('js/main.js', array('jquery'), true),
+    'theme-style' => array('assets/css/main.css', array(), false),
+    'theme-main'  => array('assets/js/main.js', array('jquery'), true),
 );
-
 return $theme_assets;
 PHP
 
-    # enqueue.php - подключение ассетов, подключает assets.php
-    cat > "$THEME_DIR/inc/enqueue.php" <<'PHP'
+    # enqueue.php — регистрируем ассеты в правильном хуке
+    cat > "$THEME_DIR/inc/enqueue.php" <<PHP
 <?php
-$assets = require __DIR__ . '/assets.php';
-foreach ($assets as $handle => $info) {
-    $path = get_template_directory_uri() . '/' . $info[0];
-    if (strpos($info[0], '.css') !== false) {
-        wp_enqueue_style($handle, $path, isset($info[1]) ? $info[1] : array(), filemtime(get_template_directory() . '/' . $info[0]));
-    } else {
-        wp_enqueue_script($handle, $path, isset($info[1]) ? $info[1] : array(), filemtime(get_template_directory() . '/' . $info[0]), isset($info[2]) ? $info[2] : true);
+function ${SAFE_NAME}_enqueue_assets() {
+    $assets = require __DIR__ . '/assets.php';
+    foreach ($assets as $handle => $info) {
+        $path = get_template_directory_uri() . '/' . $info[0];
+        if (strpos($info[0], '.css') !== false) {
+            wp_enqueue_style($handle, $path, isset($info[1]) ? $info[1] : array(), file_exists(get_template_directory() . '/' . $info[0]) ? filemtime(get_template_directory() . '/' . $info[0]) : null);
+        } else {
+            wp_enqueue_script($handle, $path, isset($info[1]) ? $info[1] : array(), file_exists(get_template_directory() . '/' . $info[0]) ? filemtime(get_template_directory() . '/' . $info[0]) : null, isset($info[2]) ? $info[2] : true);
+        }
     }
 }
+add_action('wp_enqueue_scripts', '${SAFE_NAME}_enqueue_assets');
 PHP
 
-    # menu.php - регистрация меню
-    cat > "$THEME_DIR/inc/menu.php" <<'PHP'
+    # menu.php
+    cat > "$THEME_DIR/inc/menu.php" <<PHP
 <?php
-function theme_register_menus() {
+function ${SAFE_NAME}_register_menus() {
     register_nav_menus(array(
-        'primary' => __('Primary Menu', 'theme'),
+        'primary' => __('Primary Menu', '${SAFE_NAME}'),
     ));
 }
-add_action('after_setup_theme', 'theme_register_menus');
+add_action('after_setup_theme', '${SAFE_NAME}_register_menus');
 PHP
 
-    # cpts.php - пример регистрации custom post type
-    cat > "$THEME_DIR/inc/cpts.php" <<'PHP'
+    # cpts.php
+    cat > "$THEME_DIR/inc/cpts.php" <<PHP
 <?php
-function theme_register_cpts() {
+function ${SAFE_NAME}_register_cpts() {
     register_post_type('portfolio', array(
         'labels' => array('name' => 'Portfolio'),
         'public' => true,
@@ -88,26 +94,38 @@ function theme_register_cpts() {
         'supports' => array('title','editor','thumbnail')
     ));
 }
-add_action('init', 'theme_register_cpts');
+add_action('init', '${SAFE_NAME}_register_cpts');
 PHP
 
-    # functions.php - подключаем enqueue и assets
+    # functions.php (с указанием авторства и лицензии)
     cat > "$THEME_DIR/functions.php" <<PHP
 <?php
-// Подключаем файлы из inc
+/**
+ * Theme functions for $THEME_NAME
+ *
+ * Copyright (c) 2025 Constantine Mikhajlov <mikhajlov89@mail.ru>
+ * Licensed under the GNU General Public License v2 or later
+ */
+
+// Подключаем инклуды
 require_once __DIR__ . '/inc/enqueue.php';
-require_once __DIR__ . '/inc/assets.php';
 require_once __DIR__ . '/inc/menu.php';
 require_once __DIR__ . '/inc/cpts.php';
 
-// Точка входа для Carbon Fields, если установлен через composer
+// Theme support
+add_theme_support('title-tag');
+add_theme_support('post-thumbnails');
+add_theme_support('custom-logo');
+add_theme_support('automatic-feed-links');
+
+// Carbon Fields (автозагрузка, если установлено через composer)
 if ( file_exists( __DIR__ . '/inc/composer/vendor/autoload.php' ) ) {
     require_once __DIR__ . '/inc/composer/vendor/autoload.php';
     \Carbon_Fields\Carbon_Fields::boot();
 }
 PHP
 
-    # header.php и footer.php простые шаблоны
+    # header.php
     cat > "$THEME_DIR/header.php" <<'PHP'
 <!DOCTYPE html>
 <html <?php language_attributes(); ?>>
@@ -122,6 +140,7 @@ PHP
 </header>
 PHP
 
+    # footer.php
     cat > "$THEME_DIR/footer.php" <<'PHP'
 <footer>
   <p>&copy; <?php echo date('Y'); ?></p>
@@ -131,7 +150,7 @@ PHP
 </html>
 PHP
 
-    # Создаём минимальные файлы шаблонов
+    # index.php
     cat > "$THEME_DIR/index.php" <<'PHP'
 <?php get_header(); ?>
 <main>
@@ -145,12 +164,29 @@ PHP
 <?php get_footer(); ?>
 PHP
 
-    # Создаём пустые ассеты (JS/CSS), чтобы пути существовали
-    mkdir -p "$THEME_DIR/js"
-    touch "$THEME_DIR/js/main.js"
-    touch "$THEME_DIR/style.css"
+    # пустые ассеты
+    touch "$THEME_DIR/assets/css/main.css"
+    touch "$THEME_DIR/assets/js/main.js"
 
-    echo "Theme $THEME_NAME created at $THEME_DIR"
+    # style.css с обязательными заголовками (без ведущих отступов)
+    cat > "$THEME_DIR/style.css" <<CSS
+/*
+Theme Name: $THEME_NAME
+Theme URI: https://spaceweb.team/
+Author: Constantine Mikhajlov
+Author URI: mailto:mikhajlov89@mail.ru
+Description: Тема WordPress для $THEME_NAME
+Version: 1.0
+License: GNU General Public License v2 or later
+License URI: http://www.gnu.org/licenses/gpl-2.0.html
+Text Domain: ${SAFE_NAME}
+Tags: custom-theme
+
+Copyright: (c) 2025 Constantine Mikhajlov <mikhajlov89@mail.ru>
+*/
+CSS
+
+    echo "✅ Theme '$THEME_NAME' created at $THEME_DIR"
 }
 
 export -f create_theme_files
