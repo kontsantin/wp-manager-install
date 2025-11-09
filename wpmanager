@@ -211,7 +211,6 @@ create_project() {
     
     # Создание docker-compose.yml
     cat > "$WP_PATH/docker-compose.yml" <<'YAML'
-version: '3.8'
 
 services:
   db:
@@ -229,7 +228,7 @@ services:
       - wp_network
 
   wordpress:
-    image: wordpress:php8.1-apache
+    image: wordpress:php8.4-apache
     container_name: PROJECTNAME_wp
     restart: unless-stopped
     depends_on:
