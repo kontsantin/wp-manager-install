@@ -215,7 +215,7 @@ version: '3.8'
 
 services:
   db:
-    image: mariadb:10.6
+    image: mysql:8.0
     container_name: PROJECTNAME_db
     restart: unless-stopped
     environment:
@@ -579,35 +579,98 @@ open_project_db() {
             open_db_for_project "$SELECTED_PROJECT" "$SELECTED_PATH"
             ;;
         2)
-            echo -e "${BLUE}🌍 Открываю Adminer: http://localhost:8080${NC}"
-            echo ""
-            echo -e "${YELLOW}Инструкция по подключению:${NC}"
-            echo -e "  Сервер: db"
-            echo -e "  Пользователь: [смотрите в ${SELECTED_PATH}/.project-info]"
-            echo -e "  Пароль: [смотрите в ${SELECTED_PATH}/.project-info]"
-            echo -e "  База данных: [смотрите в ${SELECTED_PATH}/.project-info]"
-            echo ""
-            
-            # Открываем в браузере
-            if command -v powershell.exe >/dev/null 2>&1; then
-                powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
-                echo -e "${GREEN}✅ Браузер запущен${NC}"
-            elif command -v xdg-open >/dev/null 2>&1; then
-                xdg-open "http://localhost:8080" >/dev/null 2>&1 &
-                echo -e "${GREEN}✅ Браузер запущен${NC}"
+            # Читаем данные БД из .project-info
+            PROJECT_INFO_FILE="$SELECTED_PATH/.project-info"
+            if [[ -f "$PROJECT_INFO_FILE" ]]; then
+                DB_NAME=$(grep "^DB_NAME=" "$PROJECT_INFO_FILE" | cut -d'=' -f2)
+                DB_USER=$(grep "^DB_USER=" "$PROJECT_INFO_FILE" | cut -d'=' -f2)
+                DB_PASS=$(grep "^DB_PASS=" "$PROJECT_INFO_FILE" | cut -d'=' -f2)
+                
+                if [[ -n "$DB_NAME" && -n "$DB_USER" ]]; then
+                    SERVER_NAME="${SELECTED_PROJECT}_db"
+                    ADMINER_URL="http://localhost:8080/?server=${SERVER_NAME}&username=${DB_USER}&db=${DB_NAME}"
+                    echo -e "${BLUE}🌍 Открываю Adminer с предзаполненными данными: ${ADMINER_URL}${NC}"
+                    echo -e "${YELLOW}Пароль: ${DB_PASS}${NC}"
+                    echo ""
+                    
+                    # Открываем в браузере
+                    if command -v powershell.exe >/dev/null 2>&1; then
+                        powershell.exe -Command "Start-Process '${ADMINER_URL}'" 2>/dev/null &
+                        echo -e "${GREEN}✅ Браузер запущен${NC}"
+                    elif command -v xdg-open >/dev/null 2>&1; then
+                        xdg-open "${ADMINER_URL}" >/dev/null 2>&1 &
+                        echo -e "${GREEN}✅ Браузер запущен${NC}"
+                    else
+                        echo -e "${YELLOW}⚠ Откройте вручную: ${ADMINER_URL}${NC}"
+                        echo -e "${YELLOW}Пароль: ${DB_PASS}${NC}"
+                    fi
+                else
+                    echo -e "${RED}❌ Не удалось получить данные базы данных${NC}"
+                    echo -e "${BLUE}🌍 Открываю Adminer: http://localhost:8080${NC}"
+                    # Открываем в браузере
+                    if command -v powershell.exe >/dev/null 2>&1; then
+                        powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
+                        echo -e "${GREEN}✅ Браузер запущен${NC}"
+                    else
+                        echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
+                    fi
+                fi
             else
-                echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
+                echo -e "${RED}❌ Файл с информацией о проекте не найден${NC}"
+                echo -e "${BLUE}🌍 Открываю Adminer: http://localhost:8080${NC}"
+                # Открываем в браузере
+                if command -v powershell.exe >/dev/null 2>&1; then
+                    powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
+                    echo -e "${GREEN}✅ Браузер запущен${NC}"
+                else
+                    echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
+                fi
             fi
             ;;
         *)
-            echo -e "${YELLOW}ℹ Выбран Adminer${NC}"
-            echo -e "${BLUE}🌍 Открываю Adminer: http://localhost:8080${NC}"
-            # Открываем в браузере
-            if command -v powershell.exe >/dev/null 2>&1; then
-                powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
-                echo -e "${GREEN}✅ Браузер запущен${NC}"
+            # Читаем данные БД из .project-info
+            PROJECT_INFO_FILE="$SELECTED_PATH/.project-info"
+            if [[ -f "$PROJECT_INFO_FILE" ]]; then
+                DB_NAME=$(grep "^DB_NAME=" "$PROJECT_INFO_FILE" | cut -d'=' -f2)
+                DB_USER=$(grep "^DB_USER=" "$PROJECT_INFO_FILE" | cut -d'=' -f2)
+                DB_PASS=$(grep "^DB_PASS=" "$PROJECT_INFO_FILE" | cut -d'=' -f2)
+                
+                if [[ -n "$DB_NAME" && -n "$DB_USER" ]]; then
+                    SERVER_NAME="${SELECTED_PROJECT}_db"
+                    ADMINER_URL="http://localhost:8080/?server=${SERVER_NAME}&username=${DB_USER}&db=${DB_NAME}"
+                    echo -e "${YELLOW}ℹ Выбран Adminer${NC}"
+                    echo -e "${BLUE}🌍 Открываю Adminer с предзаполненными данными: ${ADMINER_URL}${NC}"
+                    echo -e "${YELLOW}Пароль: ${DB_PASS}${NC}"
+                    
+                    # Открываем в браузере
+                    if command -v powershell.exe >/dev/null 2>&1; then
+                        powershell.exe -Command "Start-Process '${ADMINER_URL}'" 2>/dev/null &
+                        echo -e "${GREEN}✅ Браузер запущен${NC}"
+                    else
+                        echo -e "${YELLOW}⚠ Откройте вручную: ${ADMINER_URL}${NC}"
+                        echo -e "${YELLOW}Пароль: ${DB_PASS}${NC}"
+                    fi
+                else
+                    echo -e "${RED}❌ Не удалось получить данные базы данных${NC}"
+                    echo -e "${BLUE}🌍 Открываю Adminer: http://localhost:8080${NC}"
+                    # Открываем в браузере
+                    if command -v powershell.exe >/dev/null 2>&1; then
+                        powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
+                        echo -e "${GREEN}✅ Браузер запущен${NC}"
+                    else
+                        echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
+                    fi
+                fi
             else
-                echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
+                echo -e "${RED}❌ Файл с информацией о проекте не найден${NC}"
+                echo -e "${BLUE}🌍 Открываю Adminer: http://localhost:8080${NC}"
+                # Открываем в браузере
+                if command -v powershell.exe >/dev/null 2>&1; then
+                    powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
+                    echo -e "${GREEN}✅ Браузер запущен${NC}"
+                else
+                    echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
+                fi
             fi
             ;;
     esac
