@@ -9,6 +9,9 @@ set -e
 WWW_PATH="$HOME/www"
 PROJECTS_FILE="$HOME/.wp-projects.txt"
 
+# Подключаем шаблон темы
+source "/usr/local/bin/theme-template.sh"
+
 # Цвета для вывода
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -281,104 +284,7 @@ INFO
     
     # Создаём базовую тему
     THEME_DIR="$WP_PATH/wp-content/themes/$THEME_NAME"
-    mkdir -p "$THEME_DIR"
-    
-    # Создаём style.css для темы
-    cat > "$THEME_DIR/style.css" <<STYLE
-/*
-Theme Name: $THEME_NAME
-Description: Custom WordPress theme for $THEME_NAME
-Version: 1.0
-Author: Your Name
-*/
-
-/* Основные стили */
-body {
-    font-family: Arial, sans-serif;
-    margin: 0;
-    padding: 0;
-}
-
-header {
-    background: #333;
-    color: white;
-    padding: 1rem;
-}
-
-main {
-    padding: 1rem;
-}
-
-footer {
-    background: #333;
-    color: white;
-    text-align: center;
-    padding: 1rem;
-}
-STYLE
-
-    # Создаём index.php для темы
-    cat > "$THEME_DIR/index.php" <<PHP
-<?php get_header(); ?>
-
-<main>
-    <?php if (have_posts()) : ?>
-        <?php while (have_posts()) : the_post(); ?>
-            <article>
-                <h2><a href="<?php the_permalink(); ?>"><?php the_title(); ?></a></h2>
-                <div><?php the_excerpt(); ?></div>
-            </article>
-        <?php endwhile; ?>
-    <?php else : ?>
-        <p>Нет записей для отображения.</p>
-    <?php endif; ?>
-</main>
-
-<?php get_footer(); ?>
-PHP
-
-    # Создаём header.php
-    cat > "$THEME_DIR/header.php" <<PHP
-<!DOCTYPE html>
-<html <?php language_attributes(); ?>>
-<head>
-    <meta charset="<?php bloginfo('charset'); ?>">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title><?php wp_title('|', true, 'right'); ?><?php bloginfo('name'); ?></title>
-    <?php wp_head(); ?>
-</head>
-<body <?php body_class(); ?>>
-    <header>
-        <h1><?php bloginfo('name'); ?></h1>
-        <p><?php bloginfo('description'); ?></p>
-    </header>
-PHP
-
-    # Создаём footer.php
-    cat > "$THEME_DIR/footer.php" <<PHP
-    <footer>
-        <p>&copy; <?php echo date('Y'); ?> <?php bloginfo('name'); ?></p>
-    </footer>
-    <?php wp_footer(); ?>
-</body>
-</html>
-PHP
-
-    # Создаём functions.php
-    cat > "$THEME_DIR/functions.php" <<PHP
-<?php
-function $THEME_NAME_theme_setup() {
-    add_theme_support('post-thumbnails');
-    add_theme_support('title-tag');
-}
-add_action('after_setup_theme', '$THEME_NAME_theme_setup');
-
-function $THEME_NAME_enqueue_styles() {
-    wp_enqueue_style('$THEME_NAME-style', get_stylesheet_uri());
-}
-add_action('wp_enqueue_scripts', '$THEME_NAME_enqueue_styles');
-?>
-PHP
+    create_theme_files "$THEME_DIR" "$THEME_NAME"
     
     # Добавляем в список проектов (с правильной кодировкой UTF-8)
     printf "%s|%s|%s|%s\n" "${THEME_NAME}" "${DOMAIN}" "${PORT}" "${WP_PATH}" >> "$PROJECTS_FILE"
