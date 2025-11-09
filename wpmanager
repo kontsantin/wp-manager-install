@@ -247,6 +247,22 @@ services:
     networks:
       - wp_network
 
+  adminer:
+    image: phpmyadmin/phpmyadmin
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: PROJECTNAME_db
+      PMA_PORT: 3306
+      PMA_USER: DBUSER
+      PMA_PASSWORD: DBPASS
+      PMA_DB: DBNAME
+    networks:
+      - wp_network
+
 volumes:
   db_data:
 
@@ -255,12 +271,14 @@ networks:
     driver: bridge
 YAML
 
-    # Заменяем плейсхолдеры
     sed -i "s/PROJECTNAME/${THEME_NAME}/g" "$WP_PATH/docker-compose.yml"
     sed -i "s/DBPASS/${DB_PASS}/g" "$WP_PATH/docker-compose.yml"
     sed -i "s/DBNAME/${DB_NAME}/g" "$WP_PATH/docker-compose.yml"
     sed -i "s/DBUSER/${DB_USER}/g" "$WP_PATH/docker-compose.yml"
     sed -i "s/PORTNUM/${PORT}/g" "$WP_PATH/docker-compose.yml"
+    sed -i "s/PMA_USER: DBUSER/PMA_USER: ${DB_USER}/g" "$WP_PATH/docker-compose.yml"
+    sed -i "s/PMA_PASSWORD: DBPASS/PMA_PASSWORD: ${DB_PASS}/g" "$WP_PATH/docker-compose.yml"
+    sed -i "s/PMA_DB: DBNAME/PMA_DB: ${DB_NAME}/g" "$WP_PATH/docker-compose.yml"
 
     # Сохраняем информацию о проекте
     cat > "$WP_PATH/.project-info" <<INFO
@@ -564,7 +582,7 @@ open_project_db() {
     echo -e "${BLUE}Выберите способ доступа:${NC}"
     echo ""
     echo "  1) Подключиться через MySQL клиент (консоль)"
-    echo "  2) Открыть Adminer в браузере (http://localhost:8080)"
+    echo "  2) Открыть phpMyAdmin в браузере (http://localhost:8080)"
     echo ""
     read -p "Ваш выбор (1 или 2): " db_choice
     
@@ -586,26 +604,27 @@ open_project_db() {
                 DB_PASS=$(grep "^DB_PASS=" "$PROJECT_INFO_FILE" | cut -d'=' -f2)
                 
                 if [[ -n "$DB_NAME" && -n "$DB_USER" ]]; then
-                    SERVER_NAME="${SELECTED_PROJECT}_db"
-                    ADMINER_URL="http://localhost:8080/?server=${SERVER_NAME}&username=${DB_USER}&db=${DB_NAME}"
-                    echo -e "${BLUE}🌍 Открываю Adminer с предзаполненными данными: ${ADMINER_URL}${NC}"
+                    echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:8080${NC}"
+                    echo -e "${YELLOW}В интерфейсе выберите сервер 'db', введите:${NC}"
+                    echo -e "${YELLOW}Пользователь: ${DB_USER}${NC}"
                     echo -e "${YELLOW}Пароль: ${DB_PASS}${NC}"
+                    echo -e "${YELLOW}База данных: ${DB_NAME}${NC}"
                     echo ""
                     
                     # Открываем в браузере
                     if command -v powershell.exe >/dev/null 2>&1; then
-                        powershell.exe -Command "Start-Process '${ADMINER_URL}'" 2>/dev/null &
+                        powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
                         echo -e "${GREEN}✅ Браузер запущен${NC}"
                     elif command -v xdg-open >/dev/null 2>&1; then
-                        xdg-open "${ADMINER_URL}" >/dev/null 2>&1 &
+                        xdg-open "http://localhost:8080" >/dev/null 2>&1 &
                         echo -e "${GREEN}✅ Браузер запущен${NC}"
                     else
-                        echo -e "${YELLOW}⚠ Откройте вручную: ${ADMINER_URL}${NC}"
+                        echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
                         echo -e "${YELLOW}Пароль: ${DB_PASS}${NC}"
                     fi
                 else
                     echo -e "${RED}❌ Не удалось получить данные базы данных${NC}"
-                    echo -e "${BLUE}🌍 Открываю Adminer: http://localhost:8080${NC}"
+                    echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:8080${NC}"
                     # Открываем в браузере
                     if command -v powershell.exe >/dev/null 2>&1; then
                         powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
@@ -616,7 +635,7 @@ open_project_db() {
                 fi
             else
                 echo -e "${RED}❌ Файл с информацией о проекте не найден${NC}"
-                echo -e "${BLUE}🌍 Открываю Adminer: http://localhost:8080${NC}"
+                echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:8080${NC}"
                 # Открываем в браузере
                 if command -v powershell.exe >/dev/null 2>&1; then
                     powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
@@ -635,23 +654,24 @@ open_project_db() {
                 DB_PASS=$(grep "^DB_PASS=" "$PROJECT_INFO_FILE" | cut -d'=' -f2)
                 
                 if [[ -n "$DB_NAME" && -n "$DB_USER" ]]; then
-                    SERVER_NAME="${SELECTED_PROJECT}_db"
-                    ADMINER_URL="http://localhost:8080/?server=${SERVER_NAME}&username=${DB_USER}&db=${DB_NAME}"
-                    echo -e "${YELLOW}ℹ Выбран Adminer${NC}"
-                    echo -e "${BLUE}🌍 Открываю Adminer с предзаполненными данными: ${ADMINER_URL}${NC}"
+                    echo -e "${YELLOW}ℹ Выбран phpMyAdmin${NC}"
+                    echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:8080${NC}"
+                    echo -e "${YELLOW}В интерфейсе выберите сервер 'db', введите:${NC}"
+                    echo -e "${YELLOW}Пользователь: ${DB_USER}${NC}"
                     echo -e "${YELLOW}Пароль: ${DB_PASS}${NC}"
+                    echo -e "${YELLOW}База данных: ${DB_NAME}${NC}"
                     
                     # Открываем в браузере
                     if command -v powershell.exe >/dev/null 2>&1; then
-                        powershell.exe -Command "Start-Process '${ADMINER_URL}'" 2>/dev/null &
+                        powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
                         echo -e "${GREEN}✅ Браузер запущен${NC}"
                     else
-                        echo -e "${YELLOW}⚠ Откройте вручную: ${ADMINER_URL}${NC}"
+                        echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
                         echo -e "${YELLOW}Пароль: ${DB_PASS}${NC}"
                     fi
                 else
                     echo -e "${RED}❌ Не удалось получить данные базы данных${NC}"
-                    echo -e "${BLUE}🌍 Открываю Adminer: http://localhost:8080${NC}"
+                    echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:8080${NC}"
                     # Открываем в браузере
                     if command -v powershell.exe >/dev/null 2>&1; then
                         powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
@@ -662,7 +682,7 @@ open_project_db() {
                 fi
             else
                 echo -e "${RED}❌ Файл с информацией о проекте не найден${NC}"
-                echo -e "${BLUE}🌍 Открываю Adminer: http://localhost:8080${NC}"
+                echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:8080${NC}"
                 # Открываем в браузере
                 if command -v powershell.exe >/dev/null 2>&1; then
                     powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &

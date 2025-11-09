@@ -54,8 +54,8 @@ open_db_for_project() {
     docker exec -it "$DB_CONTAINER" mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME"
 }
 
-# Функция добавления Adminer в docker-compose для веб-доступа к БД
-add_adminer_to_project() {
+# Функция добавления phpMyAdmin в docker-compose для веб-доступа к БД
+add_phpmyadmin_to_project() {
     local PROJECT_NAME="$1"
     local PROJECT_PATH="$2"
 
@@ -70,40 +70,43 @@ add_adminer_to_project() {
         return 1
     fi
 
-    # Проверяем, есть ли уже Adminer
-    if grep -q "adminer:" "$COMPOSE_FILE"; then
-        echo -e "${YELLOW}⚠ Adminer уже добавлен в проект${NC}"
+    # Проверяем, есть ли уже phpMyAdmin
+    if grep -q "phpmyadmin:" "$COMPOSE_FILE"; then
+        echo -e "${YELLOW}⚠ phpMyAdmin уже добавлен в проект${NC}"
         return 0
     fi
 
-    # Получаем свободный порт для Adminer
-    local ADMINER_PORT=8080
-    while docker ps --format '{{.Ports}}' | grep -q ":${ADMINER_PORT}->"; do
-        ((ADMINER_PORT++))
+    # Получаем свободный порт для phpMyAdmin
+    local PMA_PORT=8080
+    while docker ps --format '{{.Ports}}' | grep -q ":${PMA_PORT}->"; do
+        ((PMA_PORT++))
     done
 
-    echo -e "${BLUE}➕ Добавление Adminer в docker-compose.yml...${NC}"
+    echo -e "${BLUE}➕ Добавление phpMyAdmin в docker-compose.yml...${NC}"
 
-    # Добавляем сервис Adminer в docker-compose.yml
+    # Добавляем сервис phpMyAdmin в docker-compose.yml
     cat >> "$COMPOSE_FILE" <<YAML
 
-  adminer:
-    image: adminer
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
     restart: unless-stopped
     depends_on:
       - db
     ports:
-      - "${ADMINER_PORT}:8080"
+      - "${PMA_PORT}:80"
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
     networks:
       - wp_network
 YAML
 
-    echo -e "${GREEN}✅ Adminer добавлен${NC}"
+    echo -e "${GREEN}✅ phpMyAdmin добавлен${NC}"
     echo -e "${BLUE}Перезапустите проект для применения изменений:${NC}"
     echo -e "  cd $PROJECT_PATH && docker compose down && docker compose up -d"
     echo ""
-    echo -e "${GREEN}🌍 Доступ к Adminer: http://localhost:${ADMINER_PORT}${NC}"
-    echo -e "${YELLOW}Сервер: db (или localhost:${ADMINER_PORT})${NC}"
+    echo -e "${GREEN}🌍 Доступ к phpMyAdmin: http://localhost:${PMA_PORT}${NC}"
+    echo -e "${YELLOW}Сервер: db (уже настроено)${NC}"
     echo -e "${YELLOW}Пользователь: [из .project-info]${NC}"
     echo -e "${YELLOW}Пароль: [из .project-info]${NC}"
     echo -e "${YELLOW}База данных: [из .project-info]${NC}"
@@ -111,4 +114,4 @@ YAML
 
 # Экспортируем функции
 export -f open_db_for_project
-export -f add_adminer_to_project
+export -f add_phpmyadmin_to_project
