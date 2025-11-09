@@ -552,35 +552,35 @@ open_in_vscode() {
     fi
 }
 
-# Функция открытия сайта в браузере
-open_in_browser() {
-    echo -e "${BLUE}▶ Открыть сайт в браузере${NC}"
+# Функция открытия базы данных проекта
+open_project_db() {
+    echo -e "${BLUE}▶ Открыть базу данных проекта${NC}"
     echo ""
     
     if ! select_project "running"; then
         return
     fi
     
-    if [[ "$SELECTED_PORT" == "80" ]]; then
-        URL="http://${SELECTED_DOMAIN}"
-    else
-        URL="http://${SELECTED_DOMAIN}:${SELECTED_PORT}"
-    fi
-    
     echo ""
-    echo -e "${BLUE}🌍 Открываю ${URL}...${NC}"
+    echo -e "${BLUE}Выберите способ доступа:${NC}"
+    echo ""
+    echo "  1) Подключиться через MySQL клиент (консоль)"
+    echo "  2) Добавить Adminer (веб-интерфейс для БД)"
+    echo ""
+    read -p "Ваш выбор (1 или 2): " db_choice
     
-    # Пытаемся открыть в Windows браузере
-    if command -v powershell.exe >/dev/null 2>&1; then
-        powershell.exe -Command "Start-Process '${URL}'" 2>/dev/null &
-        echo -e "${GREEN}✅ Браузер запущен${NC}"
-    elif command -v cmd.exe >/dev/null 2>&1; then
-        cmd.exe /c start "${URL}" 2>/dev/null &
-        echo -e "${GREEN}✅ Браузер запущен${NC}"
-    else
-        echo -e "${YELLOW}⚠ Не удалось открыть браузер автоматически${NC}"
-        echo -e "${BLUE}Откройте вручную: ${GREEN}${URL}${NC}"
-    fi
+    case $db_choice in
+        1)
+            open_db_for_project "$SELECTED_PROJECT" "$SELECTED_PATH"
+            ;;
+        2)
+            add_adminer_to_project "$SELECTED_PROJECT" "$SELECTED_PATH"
+            ;;
+        *)
+            echo -e "${YELLOW}ℹ Выбран MySQL клиент${NC}"
+            open_db_for_project "$SELECTED_PROJECT" "$SELECTED_PATH"
+            ;;
+    esac
 }
 
 # Функция удаления проекта
@@ -670,6 +670,7 @@ main_menu() {
         echo "  5) Удалить проект"
         echo "  6) Открыть проект в VS Code"
         echo "  7) Открыть сайт в браузере"
+        echo "  8) Открыть базу данных проекта"
         echo "  0) Выход"
         echo ""
         read -p "Ваш выбор: " choice
@@ -683,6 +684,7 @@ main_menu() {
             5) remove_project ;;
             6) open_in_vscode ;;
             7) open_in_browser ;;
+            8) open_project_db ;;
             0) 
                 echo -e "${BLUE}👋 До свидания!${NC}"
                 exit 0
@@ -700,6 +702,11 @@ main_menu() {
 
 # Создаём директорию для проектов если не существует
 mkdir -p "$WWW_PATH"
+
+# Подключаем дополнительные инструменты
+if [[ -f "/usr/local/bin/db-tools.sh" ]]; then
+    source /usr/local/bin/db-tools.sh
+fi
 
 # Запускаем главное меню
 clear
