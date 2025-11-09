@@ -9,9 +9,6 @@ set -e
 WWW_PATH="$HOME/www"
 PROJECTS_FILE="$HOME/.wp-projects.txt"
 
-# Подключаем шаблон темы
-source "/usr/local/bin/theme-template.sh"
-
 # Цвета для вывода
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -145,8 +142,22 @@ create_project() {
         return 1
     fi
     
-    # Очищаем название от недопустимых символов (только латиница, цифры, дефис, подчёркивание)
-    THEME_NAME=$(LC_ALL=C echo "$THEME_NAME" | sed 's/[^a-zA-Z0-9_-]//g' | tr '[:upper:]' '[:lower:]')
+    # Нормализуем ввод имени темы:
+    # - удаляем/замещаем некорректные/невидимые символы
+    # - обрезаем пробелы по краям
+    # - заменяем любые пробельные группы на дефис
+    # - оставляем только латинские буквы, цифры, дефис и подчёркивание
+    # - приводим к нижнему регистру
+    # - схлопываем повторяющиеся дефисы/подчёркивания и убираем краевые
+    THEME_NAME=$(echo "$THEME_NAME" | { iconv -f UTF-8 -t UTF-8 -c 2>/dev/null || cat; } )
+    THEME_NAME=$(echo "$THEME_NAME" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    THEME_NAME=$(echo "$THEME_NAME" | sed 's/[[:space:]]\+/-/g')
+    THEME_NAME=$(echo "$THEME_NAME" | sed 's/[^a-zA-Z0-9_-]//g' | tr '[:upper:]' '[:lower:]')
+    THEME_NAME=$(echo "$THEME_NAME" | sed 's/[-_]\+/-/g' | sed 's/^-//' | sed 's/-$//')
+    # Если начало имени цифра — добавляем префикс
+    if [[ $THEME_NAME =~ ^[0-9] ]]; then
+        THEME_NAME="t_${THEME_NAME}"
+    fi
     
     if [[ -z "$THEME_NAME" ]]; then
         echo -e "${RED}❌ Название должно содержать только латинские буквы, цифры, дефис или подчёркивание${NC}"
@@ -281,11 +292,17 @@ INFO
     
     # Удаляем wp-content из распакованного, чтобы монтировался локальный
     rm -rf "$WP_PATH/wp-content"
-    
-    # Создаём базовую тему
+
+    # Создаём базовую тему через внешний шаблонный скрипт (если есть)
     THEME_DIR="$WP_PATH/wp-content/themes/$THEME_NAME"
-    create_theme_files "$THEME_DIR" "$THEME_NAME"
-    
+    if [[ -f "/usr/local/bin/theme-template.sh" ]]; then
+        # подключаем и вызываем функцию создания темы
+        source /usr/local/bin/theme-template.sh
+        create_theme_files "$THEME_DIR" "$THEME_NAME" "$WP_PATH" || true
+    else
+        mkdir -p "$THEME_DIR"
+    fi
+
     # Добавляем в список проектов (с правильной кодировкой UTF-8)
     printf "%s|%s|%s|%s\n" "${THEME_NAME}" "${DOMAIN}" "${PORT}" "${WP_PATH}" >> "$PROJECTS_FILE"
     

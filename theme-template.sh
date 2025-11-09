@@ -12,8 +12,15 @@ create_theme_files() {
         return 1
     fi
 
-    # Безопасное имя для text-domain / PHP-функций (латинские, нижнее подчёркивание)
-    SAFE_NAME=$(echo "$THEME_NAME" | sed 's/[^a-zA-Z0-9_]/_/g' | tr '[:upper:]' '[:lower:]')
+    # Безопасное имя для text-domain / PHP-функций:
+    # - привести к lowercase
+    # - заменить все не-латинские/нецифровые символы на '_' (включая тире -> '_')
+    # - убрать повторяющиеся '_' и обрезать ведущие/хвостовые
+    SAFE_NAME=$(echo "$THEME_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | sed 's/_\+/_/g' | sed 's/^_//' | sed 's/_$//')
+    # Если имя начинается с цифры, добавить префикс чтобы имя функции было валидным
+    if [[ $SAFE_NAME =~ ^[0-9] ]]; then
+        SAFE_NAME="t_$SAFE_NAME"
+    fi
 
     mkdir -p "$THEME_DIR"
     mkdir -p "$THEME_DIR/inc/composer"
@@ -59,13 +66,13 @@ PHP
     cat > "$THEME_DIR/inc/enqueue.php" <<PHP
 <?php
 function ${SAFE_NAME}_enqueue_assets() {
-    $assets = require __DIR__ . '/assets.php';
-    foreach ($assets as $handle => $info) {
-        $path = get_template_directory_uri() . '/' . $info[0];
-        if (strpos($info[0], '.css') !== false) {
-            wp_enqueue_style($handle, $path, isset($info[1]) ? $info[1] : array(), file_exists(get_template_directory() . '/' . $info[0]) ? filemtime(get_template_directory() . '/' . $info[0]) : null);
+    \$assets = require __DIR__ . '/assets.php';
+    foreach (\$assets as \$handle => \$info) {
+        \$path = get_template_directory_uri() . '/' . \$info[0];
+        if (strpos(\$info[0], '.css') !== false) {
+            wp_enqueue_style(\$handle, \$path, isset(\$info[1]) ? \$info[1] : array(), file_exists(get_template_directory() . '/' . \$info[0]) ? filemtime(get_template_directory() . '/' . \$info[0]) : null);
         } else {
-            wp_enqueue_script($handle, $path, isset($info[1]) ? $info[1] : array(), file_exists(get_template_directory() . '/' . $info[0]) ? filemtime(get_template_directory() . '/' . $info[0]) : null, isset($info[2]) ? $info[2] : true);
+            wp_enqueue_script(\$handle, \$path, isset(\$info[1]) ? \$info[1] : array(), file_exists(get_template_directory() . '/' . \$info[0]) ? filemtime(get_template_directory() . '/' . \$info[0]) : null, isset(\$info[2]) ? \$info[2] : true);
         }
     }
 }
