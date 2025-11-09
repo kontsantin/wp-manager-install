@@ -557,7 +557,7 @@ open_project_db() {
     echo -e "${BLUE}▶ Открыть базу данных проекта${NC}"
     echo ""
     
-    if ! select_project "running"; then
+    if ! select_project "all"; then
         return
     fi
     
@@ -565,20 +565,50 @@ open_project_db() {
     echo -e "${BLUE}Выберите способ доступа:${NC}"
     echo ""
     echo "  1) Подключиться через MySQL клиент (консоль)"
-    echo "  2) Добавить Adminer (веб-интерфейс для БД)"
+    echo "  2) Открыть Adminer в браузере (http://localhost:8080)"
     echo ""
     read -p "Ваш выбор (1 или 2): " db_choice
     
     case $db_choice in
         1)
+            # Проверяем, запущен ли проект
+            if ! docker ps --format '{{.Names}}' | grep -q "^${SELECTED_PROJECT}_wp$"; then
+                echo -e "${YELLOW}⚠ Проект '${SELECTED_PROJECT}' не запущен. Запустите его сначала.${NC}"
+                return
+            fi
             open_db_for_project "$SELECTED_PROJECT" "$SELECTED_PATH"
             ;;
         2)
-            add_adminer_to_project "$SELECTED_PROJECT" "$SELECTED_PATH"
+            echo -e "${BLUE}🌍 Открываю Adminer: http://localhost:8080${NC}"
+            echo ""
+            echo -e "${YELLOW}Инструкция по подключению:${NC}"
+            echo -e "  Сервер: db"
+            echo -e "  Пользователь: [смотрите в ${SELECTED_PATH}/.project-info]"
+            echo -e "  Пароль: [смотрите в ${SELECTED_PATH}/.project-info]"
+            echo -e "  База данных: [смотрите в ${SELECTED_PATH}/.project-info]"
+            echo ""
+            
+            # Открываем в браузере
+            if command -v powershell.exe >/dev/null 2>&1; then
+                powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
+                echo -e "${GREEN}✅ Браузер запущен${NC}"
+            elif command -v xdg-open >/dev/null 2>&1; then
+                xdg-open "http://localhost:8080" >/dev/null 2>&1 &
+                echo -e "${GREEN}✅ Браузер запущен${NC}"
+            else
+                echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
+            fi
             ;;
         *)
-            echo -e "${YELLOW}ℹ Выбран MySQL клиент${NC}"
-            open_db_for_project "$SELECTED_PROJECT" "$SELECTED_PATH"
+            echo -e "${YELLOW}ℹ Выбран Adminer${NC}"
+            echo -e "${BLUE}🌍 Открываю Adminer: http://localhost:8080${NC}"
+            # Открываем в браузере
+            if command -v powershell.exe >/dev/null 2>&1; then
+                powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
+                echo -e "${GREEN}✅ Браузер запущен${NC}"
+            else
+                echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
+            fi
             ;;
     esac
 }
