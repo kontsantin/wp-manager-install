@@ -6,8 +6,18 @@
 
 set -e
 
-WWW_PATH="$HOME/www"
-PROJECTS_FILE="$HOME/.wp-projects.txt"
+# Подключаем проверки зависимостей
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/dependencies.sh" ]]; then
+    source "$SCRIPT_DIR/dependencies.sh"
+    check_dependencies
+fi
+
+# Определяем директорию скрипта для переносимости
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Используем абсолютные пути для надежности
+WWW_PATH="/home/konst/www"
+PROJECTS_FILE="/home/konst/.wp-projects.txt"
 
 # Цвета для вывода
 RED='\033[0;31m'
@@ -30,6 +40,7 @@ select_project() {
     local projects=()
     local domains=()
     local ports=()
+    local adminer_ports=()
     local paths=()
     
     if [[ ! -f "$PROJECTS_FILE" ]] || [[ ! -s "$PROJECTS_FILE" ]]; then
@@ -38,7 +49,7 @@ select_project() {
     fi
     
     # Собираем проекты в зависимости от фильтра
-    while IFS='|' read -r name domain port path; do
+    while IFS='|' read -r name domain port adminer_port path; do
         if [[ -d "$path" ]]; then
             local add_project=0
             
@@ -58,6 +69,7 @@ select_project() {
                 projects+=("$name")
                 domains+=("$domain")
                 ports+=("$port")
+                adminer_ports+=("$adminer_port")
                 paths+=("$path")
             fi
         fi
@@ -99,6 +111,7 @@ select_project() {
         SELECTED_PROJECT="${projects[$idx]}"
         SELECTED_DOMAIN="${domains[$idx]}"
         SELECTED_PORT="${ports[$idx]}"
+        SELECTED_ADMINER_PORT="${adminer_ports[$idx]}"
         SELECTED_PATH="${paths[$idx]}"
         return 0
     else
@@ -206,6 +219,7 @@ create_project() {
     
     # Получаем свободный порт
     PORT=$(get_free_port)
+    ADMINER_PORT=$(get_free_port)
     
     echo -e "${BLUE}🐳 Создаю docker-compose.yml...${NC}"
     
@@ -253,7 +267,7 @@ services:
     depends_on:
       - db
     ports:
-      - "8080:80"
+      - "ADMINERPORT:80"
     environment:
       PMA_HOST: PROJECTNAME_db
       PMA_PORT: 3306
@@ -276,6 +290,7 @@ YAML
     sed -i "s/DBNAME/${DB_NAME}/g" "$WP_PATH/docker-compose.yml"
     sed -i "s/DBUSER/${DB_USER}/g" "$WP_PATH/docker-compose.yml"
     sed -i "s/PORTNUM/${PORT}/g" "$WP_PATH/docker-compose.yml"
+    sed -i "s/ADMINERPORT/${ADMINER_PORT}/g" "$WP_PATH/docker-compose.yml"
     sed -i "s/PMA_USER: DBUSER/PMA_USER: ${DB_USER}/g" "$WP_PATH/docker-compose.yml"
     sed -i "s/PMA_PASSWORD: DBPASS/PMA_PASSWORD: ${DB_PASS}/g" "$WP_PATH/docker-compose.yml"
     sed -i "s/PMA_DB: DBNAME/PMA_DB: ${DB_NAME}/g" "$WP_PATH/docker-compose.yml"
@@ -285,6 +300,7 @@ YAML
 PROJECT_NAME=${THEME_NAME}
 DOMAIN=${DOMAIN}
 PORT=${PORT}
+ADMINER_PORT=${ADMINER_PORT}
 DB_NAME=${DB_NAME}
 DB_USER=${DB_USER}
 DB_PASS=${DB_PASS}
@@ -310,18 +326,24 @@ INFO
     # Удаляем wp-content из распакованного, чтобы монтировался локальный
     rm -rf "$WP_PATH/wp-content"
 
-    # Создаём базовую тему через внешний шаблонный скрипт (если есть)
+    # Создаём базовую тему через внешний шаблонный скрипт (ищем в нескольких местах)
     THEME_DIR="$WP_PATH/wp-content/themes/$THEME_NAME"
+    # Ищем шаблон сначала в /usr/local/bin, затем рядом со скриптом, иначе создаём пустую папку
     if [[ -f "/usr/local/bin/theme-template.sh" ]]; then
         # подключаем и вызываем функцию создания темы
         source /usr/local/bin/theme-template.sh
         create_theme_files "$THEME_DIR" "$THEME_NAME" "$WP_PATH" || true
+    elif [[ -f "$SCRIPT_DIR/theme-template.sh" ]]; then
+        # локальная копия рядом со скриптом (репозиторий)
+        source "$SCRIPT_DIR/theme-template.sh"
+        create_theme_files "$THEME_DIR" "$THEME_NAME" "$WP_PATH" || true
     else
+        # fallback — просто создаём директорию темы
         mkdir -p "$THEME_DIR"
     fi
 
     # Добавляем в список проектов (с правильной кодировкой UTF-8)
-    printf "%s|%s|%s|%s\n" "${THEME_NAME}" "${DOMAIN}" "${PORT}" "${WP_PATH}" >> "$PROJECTS_FILE"
+    printf "%s|%s|%s|%s|%s\n" "${THEME_NAME}" "${DOMAIN}" "${PORT}" "${ADMINER_PORT}" "${WP_PATH}" >> "$PROJECTS_FILE"
     
     echo -e "${BLUE}🚀 Запускаю Docker контейнеры...${NC}"
     
@@ -421,11 +443,10 @@ list_projects() {
         return
     fi
     
-    echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
-    printf "%-20s %-25s %-10s %s\n" "ПРОЕКТ" "ДОМЕН" "ПОРТ" "СТАТУС"
-    echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
+    printf "%-20s %-25s %-10s %-12s %s\n" "ПРОЕКТ" "ДОМЕН" "ПОРТ" "ADMINER" "СТАТУС"
+    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════════════════════${NC}"
     
-    while IFS='|' read -r name domain port path; do
+    while IFS='|' read -r name domain port adminer_port path; do
         if [[ -d "$path" ]]; then
             # Проверяем статус контейнера
             if docker ps --format '{{.Names}}' | grep -q "^${name}_wp$"; then
@@ -435,11 +456,11 @@ list_projects() {
             else
                 status="${RED}●${NC} Not found"
             fi
-            printf "%-20s %-25s %-10s %b\n" "$name" "$domain" "$port" "$status"
+            printf "%-20s %-25s %-10s %-12s %b\n" "$name" "$domain" "$port" "$adminer_port" "$status"
         fi
     done < "$PROJECTS_FILE"
     
-    echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════════════════════${NC}"
     echo ""
 }
 
@@ -490,6 +511,34 @@ start_project() {
     fi
 }
 
+# Функция открытия проекта в браузере
+open_in_browser() {
+    echo -e "${BLUE}▶ Открыть сайт в браузере${NC}"
+    echo ""
+    
+    if ! select_project "all"; then
+        return
+    fi
+    
+    echo ""
+    echo -e "${BLUE}🌍 Открываю сайт: http://localhost:${SELECTED_PORT}${NC}"
+    
+    # Открываем в браузере
+    if command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "http://localhost:${SELECTED_PORT}" >/dev/null 2>&1 &
+        echo -e "${GREEN}✅ Браузер запущен${NC}"
+    elif command -v powershell.exe >/dev/null 2>&1 || [[ -x "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" ]]; then
+        local ps_cmd="powershell.exe"
+        if ! command -v powershell.exe >/dev/null 2>&1; then
+            ps_cmd="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+        fi
+        "$ps_cmd" -Command "Start-Process 'http://localhost:${SELECTED_PORT}'" 2>/dev/null &
+        echo -e "${GREEN}✅ Браузер запущен${NC}"
+    else
+        echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:${SELECTED_PORT}${NC}"
+    fi
+}
+
 # Функция открытия проекта в VS Code
 open_in_vscode() {
     echo -e "${BLUE}▶ Открыть проект в VS Code${NC}"
@@ -509,53 +558,36 @@ open_in_vscode() {
     read -p "Ваш выбор (1, 2 или 3): " open_choice
     
     case $open_choice in
-        1)
-            open_path="$SELECTED_PATH"
-            ;;
-        2)
-            if [[ -d "$SELECTED_PATH/wp-content" ]]; then
-                open_path="$SELECTED_PATH/wp-content"
-            else
-                echo -e "${YELLOW}⚠ wp-content не найден, открываю весь сайт${NC}"
-                open_path="$SELECTED_PATH"
-            fi
+        1) open_path="$SELECTED_PATH" ;;
+        2) 
+            open_path="$SELECTED_PATH/wp-content"
+            [[ ! -d "$open_path" ]] && { echo -e "${YELLOW}⚠ wp-content не найден, открываю весь сайт${NC}"; open_path="$SELECTED_PATH"; }
             ;;
         3)
-            theme_path="$SELECTED_PATH/wp-content/themes/$SELECTED_PROJECT"
-            if [[ -d "$theme_path" ]]; then
-                open_path="$theme_path"
-            else
-                echo -e "${YELLOW}⚠ Тема '$SELECTED_PROJECT' не найдена, открываю wp-content${NC}"
-                open_path="$SELECTED_PATH/wp-content"
-            fi
+            open_path="$SELECTED_PATH/wp-content/themes/$SELECTED_PROJECT"
+            [[ ! -d "$open_path" ]] && { echo -e "${YELLOW}⚠ Тема '$SELECTED_PROJECT' не найдена, открываю wp-content${NC}"; open_path="$SELECTED_PATH/wp-content"; }
             ;;
-        *)
-            echo -e "${YELLOW}ℹ Выбран весь сайт${NC}"
-            open_path="$SELECTED_PATH"
-            ;;
+        *) open_path="$SELECTED_PATH"; echo -e "${YELLOW}ℹ Выбран весь сайт${NC}" ;;
     esac
     
     echo ""
     echo -e "${BLUE}🚀 Открываю ${open_path} в VS Code...${NC}"
     
-    # Пытаемся открыть через code в WSL (предпочтительно)
+    # Пытаемся открыть через WSL code
     if command -v code >/dev/null 2>&1; then
         cd "$open_path" && code . >/dev/null 2>&1
-        if [[ $? -eq 0 ]]; then
-            echo -e "${GREEN}✅ VS Code запущен${NC}"
-            echo -e "${BLUE}   Папка: ${open_path}${NC}"
-            return
-        else
-            echo -e "${YELLOW}⚠ Не удалось открыть через WSL code, пробую через Windows...${NC}"
-        fi
+        [[ $? -eq 0 ]] && { echo -e "${GREEN}✅ VS Code запущен${NC}"; echo -e "${BLUE}   Папка: ${open_path}${NC}"; return; }
     fi
     
-    # Fallback: через PowerShell из Windows
+    # Открытие через PowerShell в Windows
     local wsl_distro=$(lsb_release -si 2>/dev/null || echo "Ubuntu")
-    local win_path=$(wslpath -w "$open_path" 2>/dev/null || echo "\\\\wsl.localhost\\${wsl_distro}${open_path}")
+    local win_path=$(wslpath -w "$open_path" 2>/dev/null || echo "\\\\wsl\$\\${wsl_distro}${open_path}")
     
-    if command -v powershell.exe >/dev/null 2>&1; then
-        powershell.exe -Command "code '${win_path}'" >/dev/null 2>&1
+    local ps_cmd="powershell.exe"
+    [[ ! $(command -v powershell.exe) ]] && ps_cmd="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+    
+    if [[ -x "$ps_cmd" ]]; then
+        "$ps_cmd" -Command "code '${win_path}'" >/dev/null 2>&1
         if [[ $? -eq 0 ]]; then
             echo -e "${GREEN}✅ VS Code запущен${NC}"
             echo -e "${BLUE}   Папка: ${win_path}${NC}"
@@ -568,6 +600,7 @@ open_in_vscode() {
         echo -e "${YELLOW}Откройте вручную: ${win_path}${NC}"
     fi
 }
+
 
 # Функция открытия базы данных проекта
 open_project_db() {
@@ -582,7 +615,7 @@ open_project_db() {
     echo -e "${BLUE}Выберите способ доступа:${NC}"
     echo ""
     echo "  1) Подключиться через MySQL клиент (консоль)"
-    echo "  2) Открыть phpMyAdmin в браузере (http://localhost:8080)"
+    echo "  2) Открыть phpMyAdmin в браузере"
     echo ""
     read -p "Ваш выбор (1 или 2): " db_choice
     
@@ -595,56 +628,6 @@ open_project_db() {
             fi
             open_db_for_project "$SELECTED_PROJECT" "$SELECTED_PATH"
             ;;
-        2)
-            # Читаем данные БД из .project-info
-            PROJECT_INFO_FILE="$SELECTED_PATH/.project-info"
-            if [[ -f "$PROJECT_INFO_FILE" ]]; then
-                DB_NAME=$(grep "^DB_NAME=" "$PROJECT_INFO_FILE" | cut -d'=' -f2)
-                DB_USER=$(grep "^DB_USER=" "$PROJECT_INFO_FILE" | cut -d'=' -f2)
-                DB_PASS=$(grep "^DB_PASS=" "$PROJECT_INFO_FILE" | cut -d'=' -f2)
-                
-                if [[ -n "$DB_NAME" && -n "$DB_USER" ]]; then
-                    echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:8080${NC}"
-                    echo -e "${YELLOW}В интерфейсе выберите сервер 'db', введите:${NC}"
-                    echo -e "${YELLOW}Пользователь: ${DB_USER}${NC}"
-                    echo -e "${YELLOW}Пароль: ${DB_PASS}${NC}"
-                    echo -e "${YELLOW}База данных: ${DB_NAME}${NC}"
-                    echo ""
-                    
-                    # Открываем в браузере
-                    if command -v powershell.exe >/dev/null 2>&1; then
-                        powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
-                        echo -e "${GREEN}✅ Браузер запущен${NC}"
-                    elif command -v xdg-open >/dev/null 2>&1; then
-                        xdg-open "http://localhost:8080" >/dev/null 2>&1 &
-                        echo -e "${GREEN}✅ Браузер запущен${NC}"
-                    else
-                        echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
-                        echo -e "${YELLOW}Пароль: ${DB_PASS}${NC}"
-                    fi
-                else
-                    echo -e "${RED}❌ Не удалось получить данные базы данных${NC}"
-                    echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:8080${NC}"
-                    # Открываем в браузере
-                    if command -v powershell.exe >/dev/null 2>&1; then
-                        powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
-                        echo -e "${GREEN}✅ Браузер запущен${NC}"
-                    else
-                        echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
-                    fi
-                fi
-            else
-                echo -e "${RED}❌ Файл с информацией о проекте не найден${NC}"
-                echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:8080${NC}"
-                # Открываем в браузере
-                if command -v powershell.exe >/dev/null 2>&1; then
-                    powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
-                    echo -e "${GREEN}✅ Браузер запущен${NC}"
-                else
-                    echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
-                fi
-            fi
-            ;;
         *)
             # Читаем данные БД из .project-info
             PROJECT_INFO_FILE="$SELECTED_PATH/.project-info"
@@ -654,41 +637,58 @@ open_project_db() {
                 DB_PASS=$(grep "^DB_PASS=" "$PROJECT_INFO_FILE" | cut -d'=' -f2)
                 
                 if [[ -n "$DB_NAME" && -n "$DB_USER" ]]; then
-                    echo -e "${YELLOW}ℹ Выбран phpMyAdmin${NC}"
-                    echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:8080${NC}"
+                    echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:${SELECTED_ADMINER_PORT}${NC}"
                     echo -e "${YELLOW}В интерфейсе выберите сервер 'db', введите:${NC}"
                     echo -e "${YELLOW}Пользователь: ${DB_USER}${NC}"
                     echo -e "${YELLOW}Пароль: ${DB_PASS}${NC}"
                     echo -e "${YELLOW}База данных: ${DB_NAME}${NC}"
+                    echo ""
                     
                     # Открываем в браузере
-                    if command -v powershell.exe >/dev/null 2>&1; then
-                        powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
+                    if command -v xdg-open >/dev/null 2>&1; then
+                        xdg-open "http://localhost:${SELECTED_ADMINER_PORT}" >/dev/null 2>&1 &
+                        echo -e "${GREEN}✅ Браузер запущен${NC}"
+                    elif command -v powershell.exe >/dev/null 2>&1 || [[ -x "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" ]]; then
+                        local ps_cmd="powershell.exe"
+                        if ! command -v powershell.exe >/dev/null 2>&1; then
+                            ps_cmd="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+                        fi
+                        "$ps_cmd" -Command "Start-Process 'http://localhost:${SELECTED_ADMINER_PORT}'" 2>/dev/null &
                         echo -e "${GREEN}✅ Браузер запущен${NC}"
                     else
-                        echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
+                        echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:${SELECTED_ADMINER_PORT}${NC}"
                         echo -e "${YELLOW}Пароль: ${DB_PASS}${NC}"
                     fi
                 else
                     echo -e "${RED}❌ Не удалось получить данные базы данных${NC}"
-                    echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:8080${NC}"
+                    echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:${SELECTED_ADMINER_PORT}${NC}"
                     # Открываем в браузере
-                    if command -v powershell.exe >/dev/null 2>&1; then
-                        powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
+                    if command -v xdg-open >/dev/null 2>&1; then
+                        xdg-open "http://localhost:${SELECTED_ADMINER_PORT}" >/dev/null 2>&1 &
+                        echo -e "${GREEN}✅ Браузер запущен${NC}"
+                    elif command -v powershell.exe >/dev/null 2>&1 || [[ -x "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" ]]; then
+                        local ps_cmd="powershell.exe"
+                        if ! command -v powershell.exe >/dev/null 2>&1; then
+                            ps_cmd="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+                        fi
+                        "$ps_cmd" -Command "Start-Process 'http://localhost:${SELECTED_ADMINER_PORT}'" 2>/dev/null &
                         echo -e "${GREEN}✅ Браузер запущен${NC}"
                     else
-                        echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
+                        echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:${SELECTED_ADMINER_PORT}${NC}"
                     fi
                 fi
             else
                 echo -e "${RED}❌ Файл с информацией о проекте не найден${NC}"
-                echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:8080${NC}"
+                echo -e "${BLUE}🌍 Открываю phpMyAdmin: http://localhost:${SELECTED_ADMINER_PORT}${NC}"
                 # Открываем в браузере
-                if command -v powershell.exe >/dev/null 2>&1; then
-                    powershell.exe -Command "Start-Process 'http://localhost:8080'" 2>/dev/null &
+                if command -v xdg-open >/dev/null 2>&1; then
+                    xdg-open "http://localhost:${SELECTED_ADMINER_PORT}" >/dev/null 2>&1 &
+                    echo -e "${GREEN}✅ Браузер запущен${NC}"
+                elif command -v powershell.exe >/dev/null 2>&1; then
+                    powershell.exe -Command "Start-Process 'http://localhost:${SELECTED_ADMINER_PORT}'" 2>/dev/null &
                     echo -e "${GREEN}✅ Браузер запущен${NC}"
                 else
-                    echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:8080${NC}"
+                    echo -e "${YELLOW}⚠ Откройте вручную: http://localhost:${SELECTED_ADMINER_PORT}${NC}"
                 fi
             fi
             ;;
